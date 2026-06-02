@@ -249,7 +249,7 @@ jobs:
           apt-ftparchive release . > Release
           popd >/dev/null
 
-          ./scripts/openwrt-index-packages.sh release-assets openwrt-repo
+          ./scripts/openwrt-index-packages.sh release-assets openwrt-repo flat
 
       - name: Publish versioned release
         uses: softprops/action-gh-release@v2
@@ -258,9 +258,9 @@ jobs:
             release-assets/sen0658-linux-amd64/*.tar.gz
             release-assets/sen0658-linux-arm64/*.tar.gz
             release-assets/sen0658-windows-amd64/*.zip
-            release-assets/sen0658-openwrt-*/*.ipk
-            apt-repo/*
-            openwrt-repo/**/*
+            release-assets/sen0658-linux-amd64/*.deb
+            release-assets/sen0658-linux-arm64/*.deb
+            openwrt-repo/*.ipk
 
       - name: Publish/update stable APT release
         uses: softprops/action-gh-release@v2
@@ -280,5 +280,4 @@ jobs:
           target_commitish: ${{ github.sha }}
           overwrite_files: true
           files: |
-            release-assets/sen0658-openwrt-*/*.ipk
-            openwrt-repo/**/*
+            openwrt-repo/*
