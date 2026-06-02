@@ -1,14 +1,186 @@
 #include "sen0658/sen0658.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <fcntl.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 
 namespace {
+
+#ifdef _WIN32
+using SocketHandle = SOCKET;
+constexpr SocketHandle invalid_socket_handle = INVALID_SOCKET;
+#else
+using SocketHandle = int;
+constexpr SocketHandle invalid_socket_handle = -1;
+#endif
+
+void close_socket(SocketHandle s) {
+#ifdef _WIN32
+    closesocket(s);
+#else
+    close(s);
+#endif
+}
+
+bool set_nonblocking(SocketHandle s) {
+#ifdef _WIN32
+    u_long mode = 1;
+    return ioctlsocket(s, FIONBIO, &mode) == 0;
+#else
+    const int flags = fcntl(s, F_GETFL, 0);
+    if (flags < 0) return false;
+    return fcntl(s, F_SETFL, flags | O_NONBLOCK) == 0;
+#endif
+}
+
+class TcpRuntime {
+public:
+    TcpRuntime() {
+#ifdef _WIN32
+        WSADATA data{};
+        ok_ = WSAStartup(MAKEWORD(2, 2), &data) == 0;
+#else
+        ok_ = true;
+#endif
+    }
+
+    TcpRuntime(const TcpRuntime&) = delete;
+    TcpRuntime& operator=(const TcpRuntime&) = delete;
+
+    ~TcpRuntime() {
+#ifdef _WIN32
+        if (ok_) WSACleanup();
+#endif
+    }
+
+    bool ok() const { return ok_; }
+
+private:
+    bool ok_ = false;
+};
+
+class NmeaTcpServer {
+public:
+    NmeaTcpServer() = default;
+    NmeaTcpServer(const NmeaTcpServer&) = delete;
+    NmeaTcpServer& operator=(const NmeaTcpServer&) = delete;
+
+    ~NmeaTcpServer() {
+        for (const auto client : clients_) {
+            close_socket(client);
+        }
+        if (listen_socket_ != invalid_socket_handle) {
+            close_socket(listen_socket_);
+        }
+    }
+
+    bool open(const std::string& bind_address, int tcp_port) {
+        if (tcp_port < 1 || tcp_port > 65535) {
+            std::cerr << "TCP NMEA port must be 1..65535\n";
+            return false;
+        }
+
+        addrinfo hints{};
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+        hints.ai_flags = bind_address.empty() ? AI_PASSIVE : 0;
+
+        const std::string service = std::to_string(tcp_port);
+        addrinfo* raw = nullptr;
+        const char* node = bind_address.empty() ? nullptr : bind_address.c_str();
+        const int rc = getaddrinfo(node, service.c_str(), &hints, &raw);
+        if (rc != 0) {
+            std::cerr << "Failed to resolve TCP NMEA bind address: " << gai_strerror(rc) << '\n';
+            return false;
+        }
+
+        std::unique_ptr<addrinfo, decltype(&freeaddrinfo)> addresses(raw, freeaddrinfo);
+        for (addrinfo* ai = addresses.get(); ai != nullptr; ai = ai->ai_next) {
+            SocketHandle candidate = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+            if (candidate == invalid_socket_handle) continue;
+
+            int yes = 1;
+            setsockopt(candidate, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&yes), sizeof(yes));
+
+            if (bind(candidate, ai->ai_addr, static_cast<int>(ai->ai_addrlen)) == 0 &&
+                listen(candidate, 8) == 0 &&
+                set_nonblocking(candidate)) {
+                listen_socket_ = candidate;
+                return true;
+            }
+
+            close_socket(candidate);
+        }
+
+        std::cerr << "Failed to open TCP NMEA server socket\n";
+        return false;
+    }
+
+    void accept_pending() {
+        while (true) {
+            sockaddr_storage peer{};
+            socklen_t peer_len = sizeof(peer);
+            const SocketHandle client = accept(
+                listen_socket_,
+                reinterpret_cast<sockaddr*>(&peer),
+                &peer_len
+            );
+            if (client == invalid_socket_handle) return;
+
+            if (set_nonblocking(client)) {
+                clients_.push_back(client);
+                std::cerr << "TCP NMEA client connected (" << clients_.size() << " active)\n";
+            } else {
+                close_socket(client);
+            }
+        }
+    }
+
+    void broadcast(const std::string& payload) {
+        accept_pending();
+        auto end = std::remove_if(clients_.begin(), clients_.end(), [&](SocketHandle client) {
+#ifdef MSG_NOSIGNAL
+            const int flags = MSG_NOSIGNAL;
+#else
+            const int flags = 0;
+#endif
+            const int sent = send(client, payload.data(), static_cast<int>(payload.size()), flags);
+            if (sent == static_cast<int>(payload.size())) {
+                return false;
+            }
+            close_socket(client);
+            std::cerr << "TCP NMEA client disconnected\n";
+            return true;
+        });
+        clients_.erase(end, clients_.end());
+    }
+
+private:
+    SocketHandle listen_socket_ = invalid_socket_handle;
+    std::vector<SocketHandle> clients_;
+};
 
 struct Args {
 #ifdef _WIN32
@@ -20,10 +192,12 @@ struct Args {
     int slave = 1;
     int interval_ms = 2000;
     int timeout_ms = 1200;
+    int nmea_tcp_port = 0;
     bool interval_ms_set = false;
     bool nmea = false;
     bool once = false;
     bool verbose = true;
+    std::string nmea_tcp_bind;
 };
 
 void usage(const char* argv0) {
@@ -33,10 +207,13 @@ void usage(const char* argv0) {
         << "  --port <name>         Serial port, e.g. COM9 or /dev/ttyUSB0\n"
         << "  --baud <baud>         Baud rate, default 4800\n"
         << "  --slave <id>          Modbus slave address, default 1\n"
-        << "  --interval-ms <ms>    Poll interval, default 2000 (500 with --nmea)\n"
+        << "  --interval-ms <ms>    Poll interval, default 2000 (500 with NMEA output)\n"
+        << "  --rate-hz <hz>        Poll rate, alternative to --interval-ms; NMEA default 2 Hz\n"
         << "  --timeout-ms <ms>     Per-request timeout, default 1200\n"
         << "  --nmea                Emit NMEA 0183 proprietary sensor sentences at 2 Hz by default\n"
-        << "  --once                Poll once and exit\n"
+        << "  --nmea-tcp-port <p>   Listen on TCP port p and stream NMEA 0183 sentences\n"
+        << "  --nmea-tcp-bind <a>   Bind TCP NMEA server to address a, default all interfaces\n"
+        << "  --once                Poll once and exit (ignored by TCP NMEA server)\n"
         << "  --quiet               Do not print raw TX/RX bytes\n"
         << "  --help                Show this help\n\n"
 #ifdef _WIN32
@@ -51,6 +228,14 @@ bool parse_int(const char* s, int& out) {
     const long v = std::strtol(s, &end, 10);
     if (end == s || *end != '\0') return false;
     out = static_cast<int>(v);
+    return true;
+}
+
+bool parse_rate_hz(const char* s, int& interval_ms) {
+    char* end = nullptr;
+    const double hz = std::strtod(s, &end);
+    if (end == s || *end != '\0' || hz <= 0.0) return false;
+    interval_ms = std::max(1, static_cast<int>((1000.0 / hz) + 0.5));
     return true;
 }
 
@@ -75,8 +260,20 @@ Args parse_args(int argc, char** argv) {
         } else if (arg == "--interval-ms") {
             if (!parse_int(need_value("--interval-ms"), a.interval_ms)) std::exit(2);
             a.interval_ms_set = true;
+        } else if (arg == "--rate-hz") {
+            if (!parse_rate_hz(need_value("--rate-hz"), a.interval_ms)) {
+                std::cerr << "Poll rate must be a positive number of Hz\n";
+                std::exit(2);
+            }
+            a.interval_ms_set = true;
         } else if (arg == "--timeout-ms") {
             if (!parse_int(need_value("--timeout-ms"), a.timeout_ms)) std::exit(2);
+        } else if (arg == "--nmea-tcp-port") {
+            if (!parse_int(need_value("--nmea-tcp-port"), a.nmea_tcp_port)) std::exit(2);
+            a.nmea = true;
+            a.verbose = false;
+        } else if (arg == "--nmea-tcp-bind") {
+            a.nmea_tcp_bind = need_value("--nmea-tcp-bind");
         } else if (arg == "--nmea") {
             a.nmea = true;
             a.verbose = false;
@@ -114,8 +311,8 @@ std::string nmea_checksum(const std::string& payload) {
     return out.str();
 }
 
-void print_nmea_sentence(const std::string& payload) {
-    std::cout << '$' << payload << '*' << nmea_checksum(payload) << "\r\n";
+std::string nmea_sentence(const std::string& payload) {
+    return "$" + payload + "*" + nmea_checksum(payload) + "\r\n";
 }
 
 std::string format_double(double value, int precision) {
@@ -124,17 +321,18 @@ std::string format_double(double value, int precision) {
     return out.str();
 }
 
-void print_nmea_reading(const sen0658::Reading& d) {
+std::string nmea_reading(const sen0658::Reading& d) {
     // Proprietary NMEA 0183 sentences keep every SEN0658 channel available even
     // when no standard sentence exists for a sensor, such as PM, noise, or lux.
-    print_nmea_sentence(
+    std::string out;
+    out += nmea_sentence(
         "PSENWND," + format_double(d.wind_speed_mps, 2) + ",M," +
         std::to_string(d.wind_direction_degrees) + ",T," +
         std::to_string(d.wind_direction_sector) + "," +
         (d.wind_ok ? "A" : "V")
     );
 
-    print_nmea_sentence(
+    out += nmea_sentence(
         "PSENENV," + format_double(d.temperature_celsius, 1) + ",C," +
         format_double(d.humidity_percent, 1) + ",P," +
         format_double(d.noise_db, 1) + ",D," +
@@ -142,16 +340,21 @@ void print_nmea_reading(const sen0658::Reading& d) {
         (d.temp_humidity_noise_ok && d.pm_pressure_ok ? "A" : "V")
     );
 
-    print_nmea_sentence(
+    out += nmea_sentence(
         "PSENAIR," + std::to_string(d.pm25_ugm3) + ",UGM3," +
         std::to_string(d.pm10_ugm3) + ",UGM3," +
         (d.pm_pressure_ok ? "A" : "V")
     );
 
-    print_nmea_sentence(
+    out += nmea_sentence(
         "PSENLUX," + std::to_string(d.light_lux) + ",LX," +
         (d.light_ok ? "A" : "V")
     );
+    return out;
+}
+
+void print_nmea_reading(const sen0658::Reading& d) {
+    std::cout << nmea_reading(d);
 }
 
 void print_reading(const sen0658::Reading& d) {
@@ -179,10 +382,37 @@ int main(int argc, char** argv) {
         return 2;
     }
 
+    if (args.interval_ms < 1) {
+        std::cerr << "Poll interval must be at least 1 ms\n";
+        return 2;
+    }
+
+    if (args.nmea_tcp_port < 0 || args.nmea_tcp_port > 65535) {
+        std::cerr << "TCP NMEA port must be 1..65535\n";
+        return 2;
+    }
+
     if (!args.nmea) {
         std::cout << "Opening " << args.port << " at " << args.baud << " 8N1\n";
         std::cout << "Polling Modbus slave " << args.slave << "\n";
         std::cout << "If the adapter TX LED never blinks, check COM port/driver first.\n";
+    }
+
+    TcpRuntime tcp_runtime;
+    std::optional<NmeaTcpServer> nmea_tcp_server;
+    if (args.nmea_tcp_port > 0) {
+        if (!tcp_runtime.ok()) {
+            std::cerr << "Failed to initialize TCP sockets\n";
+            return 1;
+        }
+        nmea_tcp_server.emplace();
+        if (!nmea_tcp_server->open(args.nmea_tcp_bind, args.nmea_tcp_port)) {
+            return 1;
+        }
+        std::cerr << "TCP NMEA 0183 server listening on "
+                  << (args.nmea_tcp_bind.empty() ? std::string("all interfaces") : args.nmea_tcp_bind)
+                  << ':' << args.nmea_tcp_port << " at "
+                  << format_double(1000.0 / args.interval_ms, 2) << " Hz\n";
     }
 
     sen0658::SerialPort port;
@@ -197,8 +427,14 @@ int main(int argc, char** argv) {
     );
 
     do {
+        if (nmea_tcp_server) {
+            nmea_tcp_server->accept_pending();
+        }
+
         if (auto reading = sensor.read_all(port)) {
-            if (args.nmea) {
+            if (nmea_tcp_server) {
+                nmea_tcp_server->broadcast(nmea_reading(*reading));
+            } else if (args.nmea) {
                 print_nmea_reading(*reading);
             } else {
                 print_reading(*reading);
@@ -210,10 +446,10 @@ int main(int argc, char** argv) {
             std::cout << "Check power, common ground, A/B polarity, and whether RS422 adapter can do 2-wire RS485.\n";
         }
 
-        if (!args.once) {
+        if (!args.once || nmea_tcp_server) {
             std::this_thread::sleep_for(std::chrono::milliseconds(args.interval_ms));
         }
-    } while (!args.once);
+    } while (!args.once || nmea_tcp_server);
 
     return 0;
 }

@@ -41,6 +41,9 @@ endif()
 
 add_executable(sen0658_poll apps/sen0658_poll.cpp)
 target_link_libraries(sen0658_poll PRIVATE sen0658)
+if(WIN32)
+    target_link_libraries(sen0658_poll PRIVATE ws2_32)
+endif()
 target_compile_features(sen0658_poll PRIVATE cxx_std_17)
 
 target_compile_options(sen0658_poll PRIVATE
