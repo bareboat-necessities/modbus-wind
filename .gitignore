@@ -48,7 +48,8 @@ build-*/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
-Makefile
+/Makefile
+!/Makefile
 install_manifest.txt
 compile_commands.json
 
@@ -69,3 +70,8 @@ Testing/
 .cache/
 
 .idea/
+
+# Packaging output
+/dist/
+/.openwrt-work/
+/.openwrt-test/
