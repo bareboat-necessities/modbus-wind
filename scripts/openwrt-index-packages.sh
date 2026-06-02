@@ -20,35 +20,60 @@ require_tool tar
 CONTROL_TMP="$(mktemp -d)"
 trap 'rm -rf "${CONTROL_TMP}"' EXIT
 
-extract_control() {
-  local package_file="$1"
-  local control_archive=""
+control_member_name() {
+  awk '/^(\.\/)?control\.tar\.(gz|xz|zst)$/ { print; exit }'
+}
 
-  control_archive="$(ar t "${package_file}" | awk '/^control\.tar\.(gz|xz|zst)$/ { print; exit }')"
-  if [[ -z "${control_archive}" ]]; then
-    echo "Unable to find control archive in ${package_file}" >&2
-    return 1
-  fi
+extract_from_ar() {
+  local package_file="$1"
+  local control_archive="$2"
+
+  ar p "${package_file}" "${control_archive}"
+}
+
+extract_from_tar() {
+  local package_file="$1"
+  local control_archive="$2"
+
+  tar -xOf "${package_file}" "${control_archive}"
+}
+
+extract_control_file() {
+  local control_archive="$1"
 
   rm -rf "${CONTROL_TMP:?}"/*
   case "${control_archive}" in
-    control.tar.gz)
-      ar p "${package_file}" "${control_archive}" | tar -xzf - -C "${CONTROL_TMP}" ./control
+    control.tar.gz|./control.tar.gz)
+      tar -xzf - -C "${CONTROL_TMP}"
       ;;
-    control.tar.xz)
-      ar p "${package_file}" "${control_archive}" | tar -xJf - -C "${CONTROL_TMP}" ./control
+    control.tar.xz|./control.tar.xz)
+      tar -xJf - -C "${CONTROL_TMP}"
       ;;
-    control.tar.zst)
+    control.tar.zst|./control.tar.zst)
       if command -v zstd >/dev/null 2>&1; then
-        ar p "${package_file}" "${control_archive}" | zstd -dc | tar -xf - -C "${CONTROL_TMP}" ./control
+        zstd -dc | tar -xf - -C "${CONTROL_TMP}"
       elif tar --help 2>/dev/null | grep -q -- --zstd; then
-        ar p "${package_file}" "${control_archive}" | tar --zstd -xf - -C "${CONTROL_TMP}" ./control
+        tar --zstd -xf - -C "${CONTROL_TMP}"
       else
         echo "Extracting zstd-compressed package metadata requires zstd or tar --zstd support" >&2
         exit 1
       fi
       ;;
   esac
+}
+
+extract_control() {
+  local package_file="$1"
+  local control_archive=""
+
+  if control_archive="$(ar t "${package_file}" 2>/dev/null | control_member_name)" && [[ -n "${control_archive}" ]]; then
+    extract_from_ar "${package_file}" "${control_archive}" | extract_control_file "${control_archive}"
+  elif control_archive="$(tar -tf "${package_file}" 2>/dev/null | control_member_name)" && [[ -n "${control_archive}" ]]; then
+    extract_from_tar "${package_file}" "${control_archive}" | extract_control_file "${control_archive}"
+  else
+    echo "Unable to find control archive in ${package_file}" >&2
+    return 1
+  fi
 
   cat "${CONTROL_TMP}/control"
 }
