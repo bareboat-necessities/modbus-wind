@@ -79,10 +79,13 @@ Options:
   --port <name>         Serial port, e.g. COM9 or /dev/ttyUSB0
   --baud <baud>         Baud rate, default 4800
   --slave <id>          Modbus slave address, default 1
-  --interval-ms <ms>    Poll interval, default 2000 (500 with --nmea)
+  --interval-ms <ms>    Poll interval, default 2000 (500 with NMEA output)
+  --rate-hz <hz>        Poll rate, alternative to --interval-ms; NMEA default 2 Hz
   --timeout-ms <ms>     Per-request timeout, default 1200
   --nmea                Emit NMEA 0183 proprietary sensor sentences at 2 Hz by default
-  --once                Poll once and exit
+  --nmea-tcp-port <p>   Listen on TCP port p and stream NMEA 0183 sentences
+  --nmea-tcp-bind <a>   Bind TCP NMEA server to address a, default all interfaces
+  --once                Poll once and exit (ignored by TCP NMEA server)
   --quiet               Do not print raw TX/RX bytes
   --help                Show help
 ```
@@ -93,11 +96,14 @@ Examples:
 sen0658_poll --port COM9 --once
 sen0658_poll --port /dev/ttyUSB0 --baud 4800 --slave 1
 sen0658_poll --port /dev/ttyUSB0 --nmea
+sen0658_poll --port /dev/ttyUSB0 --nmea-tcp-port 10110 --nmea-tcp-bind 127.0.0.1 --rate-hz 2
 ```
 
 ## NMEA 0183 output
 
 Use `--nmea` to print NMEA 0183 proprietary sentences instead of the human-readable report. In this mode the program suppresses raw Modbus TX/RX logging and polls every 500 ms by default, producing 2 Hz output unless `--interval-ms` is supplied.
+
+Use `--nmea-tcp-port <p>` to run a TCP NMEA 0183 server instead of printing sentences to stdout. The server listens on all interfaces by default; add `--nmea-tcp-bind <address>` to restrict the bind address, for example `127.0.0.1`. TCP NMEA mode also suppresses raw Modbus TX/RX logging, polls continuously, and uses the same default 500 ms / 2 Hz rate unless `--interval-ms` or `--rate-hz` is supplied.
 
 Each sensor sample emits these checksummed sentences:
 
