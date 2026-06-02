@@ -11,8 +11,7 @@ https://www.dfrobot.com/product-2942.html
 wiki:
 https://wiki.dfrobot.com/sen0658/
 
-source:
-https://wiki.dfrobot.com/sen0658/docs/21685
+source: https://wiki.dfrobot.com/sen0658/docs/21685
 
 
 
