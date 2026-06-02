@@ -20,10 +20,19 @@ std::uint16_t reg_at(const std::vector<std::uint16_t>& regs, std::size_t i) {
 
 } // namespace
 
-Sensor::Sensor(std::uint8_t slave_address, int timeout_ms, bool verbose)
-    : slave_address_(slave_address), timeout_ms_(timeout_ms), verbose_(verbose) {}
+Sensor::Sensor(std::uint8_t slave_address, int timeout_ms, bool verbose, int request_gap_ms)
+    : slave_address_(slave_address),
+      timeout_ms_(timeout_ms),
+      verbose_(verbose),
+      request_gap_ms_(request_gap_ms > 0 ? request_gap_ms : 0) {}
 
 std::optional<Reading> Sensor::read_all(SerialPort& port) const {
+    auto pause_between_requests = [this]() {
+        if (request_gap_ms_ > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(request_gap_ms_));
+        }
+    };
+
     Reading out;
 
     // DFRobot example pattern:
@@ -39,7 +48,7 @@ std::optional<Reading> Sensor::read_all(SerialPort& port) const {
         std::cerr << "Failed to read wind block 0x01F4\n";
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    pause_between_requests();
 
     // 0x01F8 count 3: humidity, temperature, noise.
     if (auto r = read_holding_registers(port, slave_address_, 0x01F8, 3, timeout_ms_, verbose_)) {
@@ -51,7 +60,7 @@ std::optional<Reading> Sensor::read_all(SerialPort& port) const {
         std::cerr << "Failed to read temp/humidity/noise block 0x01F8\n";
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    pause_between_requests();
 
     // 0x01FB count 3: PM2.5, PM10, pressure.
     if (auto r = read_holding_registers(port, slave_address_, 0x01FB, 3, timeout_ms_, verbose_)) {
@@ -63,7 +72,7 @@ std::optional<Reading> Sensor::read_all(SerialPort& port) const {
         std::cerr << "Failed to read PM/pressure block 0x01FB\n";
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    pause_between_requests();
 
     // 0x01FE count 2: light high word + low word.
     if (auto r = read_holding_registers(port, slave_address_, 0x01FE, 2, timeout_ms_, verbose_)) {

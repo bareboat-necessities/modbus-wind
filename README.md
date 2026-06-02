@@ -102,6 +102,7 @@ Options:
   --interval-ms <ms>    Poll interval, default 2000 (500 with NMEA output)
   --rate-hz <hz>        Poll rate, alternative to --interval-ms; NMEA default 2 Hz
   --timeout-ms <ms>     Per-request timeout, default 1200
+  --request-gap-ms <ms> Delay between Modbus requests, default 250 (10 with NMEA output)
   --nmea                Emit NMEA 0183 standard/XDR sensor sentences at 2 Hz by default
   --nmea-tcp-port <p>   Listen on TCP port p and stream NMEA 0183 sentences
   --nmea-tcp-bind <a>   Bind TCP NMEA server to address a, default all interfaces
@@ -122,9 +123,9 @@ sen0658_poll --port COM3 --nmea-tcp-port 10110 --nmea-tcp-bind 127.0.0.1 --rate-
 
 ## NMEA 0183 output
 
-Use `--nmea` to print NMEA 0183 standard meteorological and XDR transducer sentences instead of the human-readable report. In this mode the program suppresses raw Modbus TX/RX logging and polls every 500 ms by default, producing 2 Hz output unless `--interval-ms` is supplied.
+Use `--nmea` to print NMEA 0183 standard meteorological and XDR transducer sentences instead of the human-readable report. In this mode the program suppresses raw Modbus TX/RX logging, shortens the delay between the four Modbus register requests to 10 ms, and starts a new poll every 500 ms by default. That produces 2 Hz output unless `--interval-ms` or `--rate-hz` is supplied. If a slow adapter or sensor response makes one poll take longer than the requested interval, the next poll starts immediately rather than adding another fixed sleep.
 
-Use `--nmea-tcp-port <p>` to run a TCP NMEA 0183 server instead of printing sentences to stdout. The server listens on all interfaces by default; add `--nmea-tcp-bind <address>` to restrict the bind address, for example `127.0.0.1`. TCP NMEA mode also suppresses raw Modbus TX/RX logging, polls continuously, and uses the same default 500 ms / 2 Hz rate unless `--interval-ms` or `--rate-hz` is supplied.
+Use `--nmea-tcp-port <p>` to run a TCP NMEA 0183 server instead of printing sentences to stdout. The server listens on all interfaces by default; add `--nmea-tcp-bind <address>` to restrict the bind address, for example `127.0.0.1`. TCP NMEA mode also suppresses raw Modbus TX/RX logging, polls continuously, uses the same default 10 ms Modbus request gap, and uses the same default 500 ms / 2 Hz rate unless `--interval-ms` or `--rate-hz` is supplied.
 
 Each sensor sample emits checksummed standard sentences for the common weather channels, then XDR sentences for the remaining transducers:
 

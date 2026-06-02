@@ -34,7 +34,12 @@ struct Reading {
 
 class Sensor {
 public:
-    explicit Sensor(std::uint8_t slave_address = 1, int timeout_ms = 1200, bool verbose = true);
+    explicit Sensor(
+        std::uint8_t slave_address = 1,
+        int timeout_ms = 1200,
+        bool verbose = true,
+        int request_gap_ms = 250
+    );
 
     std::optional<Reading> read_all(SerialPort& port) const;
 
@@ -42,6 +47,7 @@ private:
     std::uint8_t slave_address_ = 1;
     int timeout_ms_ = 1200;
     bool verbose_ = true;
+    int request_gap_ms_ = 250;
 };
 
 } // namespace sen0658
