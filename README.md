@@ -4,6 +4,22 @@ C++17 PC-side Modbus-RTU test program for the DFRobot SEN0658 RS485 9-in-1 weath
 
 It is meant for direct debugging with a USB serial adapter. It prints raw TX/RX bytes so you can see whether the FTDI adapter is actually transmitting and whether the sensor replies.
 
+## Hardware
+
+Ultrasonic 9-in-1 RS485 Weather Sensor for Arduino (Wind, Temp, Light, Noise)
+
+from DFRobot.com
+SKU: SEN0658
+
+Product:
+https://www.dfrobot.com/product-2942.html
+
+Wiki:
+https://wiki.dfrobot.com/sen0658/
+
+Example Sources: 
+https://wiki.dfrobot.com/sen0658/docs/21685
+
 ## Sensor defaults
 
 Factory/default settings used by this program:
