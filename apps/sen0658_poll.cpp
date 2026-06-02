@@ -361,9 +361,9 @@ std::string nmea_reading(const sen0658::Reading& d) {
     // remaining environmental and air-quality channels.
     std::string out;
 
-    // MWV: wind angle in true degrees, speed in metres per second, and status.
+    // MWV: apparent wind angle, speed in metres per second, and status.
     out += nmea_sentence(
-        "WIMWV," + format_double(d.wind_direction_degrees, 1) + ",T," +
+        "WIMWV," + format_double(d.wind_direction_degrees, 1) + ",R," +
         format_double(d.wind_speed_mps, 2) + ",M," +
         (d.wind_ok ? "A" : "V")
     );

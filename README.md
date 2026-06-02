@@ -156,14 +156,14 @@ Use `--nmea-tcp-port <p>` to run a TCP NMEA 0183 server instead of printing sent
 
 Each sensor sample emits checksummed standard sentences for the common weather channels, then XDR sentences for the remaining transducers:
 
-- `$WIMWV`: wind direction as a true angle, wind speed in m/s, and status (`A` = valid, `V` = invalid).
+- `$WIMWV`: apparent wind direction angle, wind speed in m/s, and status (`A` = valid, `V` = invalid).
 - `$WIMDA`: barometric pressure in inches of mercury and bars, plus outside air temperature in Celsius.
 - `$WIXDR`: wind sector, relative humidity, noise, particulate matter, and light transducer measurements when their Modbus blocks are valid.
 
 Example:
 
 ```text
-$WIMWV,110.0,T,0.14,M,A*13
+$WIMWV,110.0,R,0.14,M,A*05
 $WIMDA,30.0921,I,1.0190,B,24.6,C,,C,,,,,,,,,,,,,,*73
 $WIXDR,A,2,N,WIND_SECTOR*3A
 $WIXDR,H,45.1,P,REL_HUMIDITY,G,51.8,D,NOISE_DB*5D
