@@ -64,6 +64,14 @@ make
 ./build/sen0658_poll --port /dev/ttyUSB0 --once
 ```
 
+The top-level `Makefile` is a convenience wrapper around CMake. Common targets are:
+
+```bash
+make build
+make clean
+sudo make install
+```
+
 Or without `make`:
 
 ```bash
@@ -71,6 +79,25 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ./build/sen0658_poll --port /dev/ttyUSB0 --once
 ```
+
+### OpenWrt routers
+
+The repository includes an OpenWrt package definition and SDK build helper for creating router-native packages. By default, the helper downloads the OpenWrt 24.10.6 SDK for `x86/64`; override the version and target for your router:
+
+```bash
+make package-openwrt OPENWRT_VERSION=24.10.6 OPENWRT_TARGET=mediatek/filogic
+make package-openwrt OPENWRT_VERSION=24.10.6 OPENWRT_TARGET=ramips/mt7621
+make package-openwrt OPENWRT_VERSION=24.10.6 OPENWRT_TARGET=ath79/generic
+```
+
+Packages are written under `dist/openwrt/<openwrt-version>/<target>/`. Copy the generated `.ipk` to the router and install it with `opkg`:
+
+```bash
+scp dist/openwrt/24.10.6/mediatek-filogic/*.ipk root@router:/tmp/
+ssh root@router opkg install /tmp/sen0658-pc_*.ipk
+```
+
+For custom OpenWrt feeds, copy `package/openwrt/sen0658-pc` into a feed or into an SDK `package/` directory and run `make package/sen0658-pc/compile`.
 
 ### Windows
 
@@ -151,8 +178,13 @@ The workflow in `.github/workflows/build.yml` builds and uploads:
 - `sen0658-linux-amd64`: versioned Linux tarball and Debian `.deb` package
 - `sen0658-linux-arm64`: versioned Linux tarball and Debian `.deb` package
 - `sen0658-windows-amd64`: versioned Windows zip package with `run.bat`
+- `sen0658-openwrt-x86-64`: OpenWrt `.ipk` package for `x86/64`
+- `sen0658-openwrt-armsr-armv8`: OpenWrt `.ipk` package for `armsr/armv8`
+- `sen0658-openwrt-mediatek-filogic`: OpenWrt `.ipk` package for `mediatek/filogic`
+- `sen0658-openwrt-ramips-mt7621`: OpenWrt `.ipk` package for `ramips/mt7621`
+- `sen0658-openwrt-ath79-generic`: OpenWrt `.ipk` package for `ath79/generic`
 
-Tags named `v*` also publish the archives to a GitHub Release, generate a flat APT repository from the Debian packages, and update the stable `apt` release with the latest APT metadata. The Linux ARM64 job uses the native GitHub-hosted `ubuntu-24.04-arm` runner.
+Tags named `v*` also publish the archives to a GitHub Release, generate a flat APT repository from the Debian packages, generate per-architecture OpenWrt OPKG package indexes, update the stable `apt` release with the latest APT metadata, and update the stable `openwrt` release with `.ipk` files plus OPKG metadata. The Linux ARM64 job uses the native GitHub-hosted `ubuntu-24.04-arm` runner.
 
 ## Sample output (windows)
 
