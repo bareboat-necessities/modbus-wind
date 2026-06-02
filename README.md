@@ -102,3 +102,33 @@ The workflow in `.github/workflows/build.yml` builds and uploads:
 - `sen0658-windows-amd64`
 
 The Linux ARM64 job uses the native GitHub-hosted `ubuntu-24.04-arm` runner.
+
+## Sample output (windows)
+
+```
+sen0658_poll --port COM3 --once
+Opening COM3 at 4800 8N1
+Polling Modbus slave 1
+If the adapter TX LED never blinks, check COM port/driver first.
+TX: 01 03 01 F4 00 04 04 07
+RX: 01 03 01 F4 00 04 04 07 01 03 08 00 0E 00 01 00 02 00 6E 67 FB
+TX: 01 03 01 F8 00 03 85 C6
+RX: 01 03 01 F8 00 03 85 C6 01 03 06 01 C3 00 F6 02 06 05 E5
+TX: 01 03 01 FB 00 03 75 C6
+RX: 01 03 01 FB 00 03 75 C6 01 03 06 00 05 00 0F 03 FB 9C 05
+TX: 01 03 01 FE 00 02 A4 07
+RX: 01 03 01 FE 00 02 A4 07 01 03 04 00 00 00 32 7B E6
+
+=== DFRobot SEN0658 OK ===
+Wind speed:       0.14 m/s
+Wind sector:      2
+Wind direction:   110 deg
+Temperature:      24.6 C
+Humidity:         45.1 %RH
+Noise:            51.8 dB
+Pressure:         101.9 kPa
+PM2.5:            5 ug/m3
+PM10:             15 ug/m3
+Light:            50 lux
+============================
+```
