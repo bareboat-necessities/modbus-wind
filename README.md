@@ -184,7 +184,7 @@ The workflow in `.github/workflows/build.yml` builds and uploads:
 - `sen0658-openwrt-ramips-mt7621`: OpenWrt `.ipk` package for `ramips/mt7621`
 - `sen0658-openwrt-ath79-generic`: OpenWrt `.ipk` package for `ath79/generic`
 
-Tags named `v*` also publish the archives to a GitHub Release, generate a flat APT repository from the Debian packages, generate per-architecture OpenWrt OPKG package indexes, update the stable `apt` release with the latest APT metadata, and update the stable `openwrt` release with `.ipk` files plus OPKG metadata. The Linux ARM64 job uses the native GitHub-hosted `ubuntu-24.04-arm` runner.
+Tags named `v*` also publish the archives to a GitHub Release, generate a flat APT repository from the Debian packages, generate a flat OpenWrt OPKG package index, update the stable `apt` release with the latest APT metadata, and update the stable `openwrt` release with `.ipk` files plus OPKG metadata. The Linux ARM64 job uses the native GitHub-hosted `ubuntu-24.04-arm` runner.
 
 ## Sample output (windows)
 

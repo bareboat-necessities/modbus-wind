@@ -3,6 +3,12 @@ set -euo pipefail
 
 INPUT_DIR="${1:-dist/openwrt}"
 OUTPUT_DIR="${2:-dist/openwrt-repo}"
+REPO_LAYOUT="${3:-arch}"
+
+if [[ "${REPO_LAYOUT}" != "arch" && "${REPO_LAYOUT}" != "flat" ]]; then
+  echo "Usage: $0 [input-dir] [output-dir] [arch|flat]" >&2
+  exit 2
+fi
 
 require_tool() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -95,19 +101,33 @@ for package_file in "${packages[@]}"; do
     exit 1
   fi
 
-  arch_dir="${OUTPUT_DIR}/${arch}"
-  mkdir -p "${arch_dir}"
-  cp "${package_file}" "${arch_dir}/"
+  if [[ "${REPO_LAYOUT}" == "flat" ]]; then
+    package_dir="${OUTPUT_DIR}"
+    packages_index="${OUTPUT_DIR}/Packages"
+  else
+    package_dir="${OUTPUT_DIR}/${arch}"
+    packages_index="${package_dir}/Packages"
+  fi
+
+  mkdir -p "${package_dir}"
   filename="$(basename "${package_file}")"
-  size="$(stat -c '%s' "${package_file}")"
-  sha256="$(sha256sum "${package_file}" | awk '{print $1}')"
+  destination="${package_dir}/${filename}"
+
+  if [[ -e "${destination}" ]]; then
+    echo "Duplicate package filename would overwrite ${destination}" >&2
+    exit 1
+  fi
+
+  cp "${package_file}" "${destination}"
+  size="$(stat -c '%s' "${destination}")"
+  sha256="$(sha256sum "${destination}" | awk '{print $1}')"
 
   {
     printf '%s\n' "${control}"
     printf 'Filename: %s\n' "${filename}"
     printf 'Size: %s\n' "${size}"
     printf 'SHA256sum: %s\n\n' "${sha256}"
-  } >> "${arch_dir}/Packages"
+  } >> "${packages_index}"
 done
 
 while IFS= read -r -d '' packages_file; do
