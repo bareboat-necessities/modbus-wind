@@ -2,12 +2,13 @@ name: Build SEN0658 PC tools
 
 on:
   push:
-    branches: [ main, master ]
+    branches: ["**"]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -19,18 +20,21 @@ jobs:
           - artifact_name: sen0658-linux-amd64
             runner: ubuntu-24.04
             shell: bash
+            exe_path: build/sen0658_poll
             exe_name: sen0658_poll
-            archive_name: sen0658-linux-amd64.tar.gz
+            archive_suffix: linux-amd64
           - artifact_name: sen0658-linux-arm64
             runner: ubuntu-24.04-arm
             shell: bash
+            exe_path: build/sen0658_poll
             exe_name: sen0658_poll
-            archive_name: sen0658-linux-arm64.tar.gz
+            archive_suffix: linux-arm64
           - artifact_name: sen0658-windows-amd64
             runner: windows-latest
             shell: pwsh
+            exe_path: build/Release/sen0658_poll.exe
             exe_name: sen0658_poll.exe
-            archive_name: sen0658-windows-amd64.zip
+            archive_suffix: windows-amd64
 
     runs-on: ${{ matrix.runner }}
 
@@ -42,32 +46,168 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Compute artifact tag
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "ARTIFACT_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+            echo "DEB_VERSION=${GITHUB_REF_NAME#v}-1" >> "$GITHUB_ENV"
+          else
+            echo "ARTIFACT_TAG=sha-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+            echo "DEB_VERSION=0.0.0+sha${GITHUB_SHA::7}-1" >> "$GITHUB_ENV"
+          fi
+
+      - name: Install Debian packaging tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev fakeroot apt-utils
+          echo "DEB_ARCH=$(dpkg --print-architecture)" >> "$GITHUB_ENV"
+
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSEN0658_BUILD_WARNINGS_AS_ERRORS=ON
 
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      - name: Stage Linux artifact
+      - name: Stage Linux archive
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
+          rm -rf dist
           mkdir -p dist/${{ matrix.artifact_name }}/bin
-          cp build/${{ matrix.exe_name }} dist/${{ matrix.artifact_name }}/bin/
+          cp ${{ matrix.exe_path }} dist/${{ matrix.artifact_name }}/bin/
           cp README.md dist/${{ matrix.artifact_name }}/
-          tar -czf dist/${{ matrix.archive_name }} -C dist ${{ matrix.artifact_name }}
+          tar -czf dist/sen0658-${{ env.ARTIFACT_TAG }}-${{ matrix.archive_suffix }}.tar.gz -C dist ${{ matrix.artifact_name }}
 
-      - name: Stage Windows artifact
+      - name: Package Debian .deb
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+
+          PKG="sen0658-pc"
+          STAGE="debian/${PKG}"
+
+          rm -rf debian
+          install -d \
+            "$STAGE/DEBIAN" \
+            "$STAGE/usr/bin" \
+            "$STAGE/usr/share/doc/$PKG"
+
+          install -m 0755 ${{ matrix.exe_path }} "$STAGE/usr/bin/${{ matrix.exe_name }}"
+          install -m 0644 README.md "$STAGE/usr/share/doc/$PKG/README.md"
+          install -m 0644 LICENSE "$STAGE/usr/share/doc/$PKG/copyright"
+
+          SIZE_KB="$(du -sk "$STAGE/usr" | awk '{print $1}')"
+
+          cat > debian/control <<EOF_CONTROL
+          Source: $PKG
+          Section: utils
+          Priority: optional
+          Maintainer: ${GITHUB_REPOSITORY} <noreply@github.com>
+          Standards-Version: 4.6.2
+
+          Package: $PKG
+          Architecture: any
+          Depends: \${shlibs:Depends}, \${misc:Depends}
+          Description: SEN0658 Modbus RTU reader
+           PC Modbus-RTU reader for the DFRobot SEN0658 RS485 weather sensor.
+          EOF_CONTROL
+
+          DEPENDS="$(dpkg-shlibdeps --ignore-missing-info -O -p"$PKG" \
+            -S"$STAGE" \
+            -e "$STAGE/usr/bin/${{ matrix.exe_name }}" | sed -n 's/^shlibs:Depends=//p')"
+          [ -n "$DEPENDS" ] || DEPENDS="libc6"
+
+          cat > "$STAGE/DEBIAN/control" <<EOF_CONTROL
+          Package: $PKG
+          Version: ${DEB_VERSION}
+          Section: utils
+          Priority: optional
+          Architecture: ${DEB_ARCH}
+          Maintainer: ${GITHUB_REPOSITORY} <noreply@github.com>
+          Depends: $DEPENDS
+          Installed-Size: $SIZE_KB
+          Homepage: https://github.com/${GITHUB_REPOSITORY}
+          Description: SEN0658 Modbus RTU reader
+           PC Modbus-RTU reader for the DFRobot SEN0658 RS485 weather sensor.
+          EOF_CONTROL
+
+          fakeroot dpkg-deb --build "$STAGE" "dist/${PKG}_${DEB_VERSION}_${DEB_ARCH}.deb"
+
+      - name: Stage Windows archive
         if: runner.os == 'Windows'
         run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path dist/${{ matrix.artifact_name }}/bin | Out-Null
-          Copy-Item build/Release/${{ matrix.exe_name }} dist/${{ matrix.artifact_name }}/bin/
+          Copy-Item ${{ matrix.exe_path }} dist/${{ matrix.artifact_name }}/bin/
           Copy-Item README.md dist/${{ matrix.artifact_name }}/
-          Compress-Archive -Path dist/${{ matrix.artifact_name }} -DestinationPath dist/${{ matrix.archive_name }} -Force
+          @'
+          @echo off
+          setlocal
+          set "DIR=%~dp0"
+          "%DIR%bin\sen0658_poll.exe" %*
+          endlocal
+          '@ | Set-Content -Path dist/${{ matrix.artifact_name }}/run.bat -Encoding ascii
+          Compress-Archive -Path dist/${{ matrix.artifact_name }} -DestinationPath dist/sen0658-${{ env.ARTIFACT_TAG }}-${{ matrix.archive_suffix }}.zip -Force
 
       - name: Upload archive
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist/${{ matrix.archive_name }}
+          path: |
+            dist/sen0658-${{ env.ARTIFACT_TAG }}-${{ matrix.archive_suffix }}.tar.gz
+            dist/sen0658-${{ env.ARTIFACT_TAG }}-${{ matrix.archive_suffix }}.zip
+            dist/sen0658-pc_${{ env.DEB_VERSION }}_${{ env.DEB_ARCH }}.deb
           if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release and flat APT repo
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Build flat APT repository
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev apt-utils
+
+          rm -rf apt-repo
+          mkdir -p apt-repo
+
+          cp -v release-assets/sen0658-linux-amd64/*.deb apt-repo/
+          cp -v release-assets/sen0658-linux-arm64/*.deb apt-repo/
+
+          pushd apt-repo >/dev/null
+          dpkg-scanpackages --multiversion . /dev/null > Packages
+          gzip -9c Packages > Packages.gz
+          apt-ftparchive release . > Release
+          popd >/dev/null
+
+      - name: Publish versioned release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/sen0658-linux-amd64/*.tar.gz
+            release-assets/sen0658-linux-arm64/*.tar.gz
+            release-assets/sen0658-windows-amd64/*.zip
+            apt-repo/*
+
+      - name: Publish/update stable APT release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apt
+          name: APT repository (stable)
+          target_commitish: ${{ github.sha }}
+          overwrite_files: true
+          files: |
+            apt-repo/*

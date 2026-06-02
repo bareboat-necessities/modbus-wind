@@ -125,11 +125,11 @@ $PSENLUX,50,LX,A*35
 
 The workflow in `.github/workflows/build.yml` builds and uploads:
 
-- `sen0658-linux-amd64`
-- `sen0658-linux-arm64`
-- `sen0658-windows-amd64`
+- `sen0658-linux-amd64`: versioned Linux tarball and Debian `.deb` package
+- `sen0658-linux-arm64`: versioned Linux tarball and Debian `.deb` package
+- `sen0658-windows-amd64`: versioned Windows zip package with `run.bat`
 
-The Linux ARM64 job uses the native GitHub-hosted `ubuntu-24.04-arm` runner.
+Tags named `v*` also publish the archives to a GitHub Release, generate a flat APT repository from the Debian packages, and update the stable `apt` release with the latest APT metadata. The Linux ARM64 job uses the native GitHub-hosted `ubuntu-24.04-arm` runner.
 
 ## Sample output (windows)
 
