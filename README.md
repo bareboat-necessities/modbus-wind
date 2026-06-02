@@ -117,6 +117,7 @@ sen0658_poll --port COM9 --once
 sen0658_poll --port /dev/ttyUSB0 --baud 4800 --slave 1
 sen0658_poll --port /dev/ttyUSB0 --nmea
 sen0658_poll --port /dev/ttyUSB0 --nmea-tcp-port 10110 --nmea-tcp-bind 127.0.0.1 --rate-hz 2
+sen0658_poll --port COM3 --nmea-tcp-port 10110 --nmea-tcp-bind 127.0.0.1 --rate-hz 2
 ```
 
 ## NMEA 0183 output
