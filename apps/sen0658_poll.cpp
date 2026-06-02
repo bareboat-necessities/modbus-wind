@@ -210,7 +210,7 @@ void usage(const char* argv0) {
         << "  --interval-ms <ms>    Poll interval, default 2000 (500 with NMEA output)\n"
         << "  --rate-hz <hz>        Poll rate, alternative to --interval-ms; NMEA default 2 Hz\n"
         << "  --timeout-ms <ms>     Per-request timeout, default 1200\n"
-        << "  --nmea                Emit NMEA 0183 proprietary sensor sentences at 2 Hz by default\n"
+        << "  --nmea                Emit NMEA 0183 standard/XDR sensor sentences at 2 Hz by default\n"
         << "  --nmea-tcp-port <p>   Listen on TCP port p and stream NMEA 0183 sentences\n"
         << "  --nmea-tcp-bind <a>   Bind TCP NMEA server to address a, default all interfaces\n"
         << "  --once                Poll once and exit (ignored by TCP NMEA server)\n"
@@ -321,35 +321,84 @@ std::string format_double(double value, int precision) {
     return out.str();
 }
 
+std::string format_if(bool ok, double value, int precision) {
+    return ok ? format_double(value, precision) : std::string();
+}
+
+void append_xdr_measurement(
+    std::vector<std::string>& fields,
+    const std::string& transducer_type,
+    const std::string& value,
+    const std::string& units,
+    const std::string& name
+) {
+    fields.push_back(transducer_type);
+    fields.push_back(value);
+    fields.push_back(units);
+    fields.push_back(name);
+}
+
+std::string xdr_sentence(const std::vector<std::string>& fields) {
+    std::string payload = "WIXDR";
+    for (const auto& field : fields) {
+        payload += "," + field;
+    }
+    return nmea_sentence(payload);
+}
+
 std::string nmea_reading(const sen0658::Reading& d) {
-    // Proprietary NMEA 0183 sentences keep every SEN0658 channel available even
-    // when no standard sentence exists for a sensor, such as PM, noise, or lux.
+    // Use standard NMEA 0183 meteorological sentences for the channels that
+    // have well-known sentences, and XDR transducer sentences for the SEN0658's
+    // remaining environmental and air-quality channels.
     std::string out;
+
+    // MWV: wind angle in true degrees, speed in metres per second, and status.
     out += nmea_sentence(
-        "PSENWND," + format_double(d.wind_speed_mps, 2) + ",M," +
-        std::to_string(d.wind_direction_degrees) + ",T," +
-        std::to_string(d.wind_direction_sector) + "," +
+        "WIMWV," + format_double(d.wind_direction_degrees, 1) + ",T," +
+        format_double(d.wind_speed_mps, 2) + ",M," +
         (d.wind_ok ? "A" : "V")
     );
 
+    // MDA: barometric pressure and outside air temperature. Empty fields are
+    // retained for the other MDA measurements so humidity and similar channels
+    // can be represented by XDR below without duplicating them here.
+    const bool pressure_ok = d.pm_pressure_ok;
+    const bool temperature_ok = d.temp_humidity_noise_ok;
+    const double pressure_bar = d.pressure_kpa / 100.0;
+    const double pressure_inhg = d.pressure_kpa * 0.295299830714;
     out += nmea_sentence(
-        "PSENENV," + format_double(d.temperature_celsius, 1) + ",C," +
-        format_double(d.humidity_percent, 1) + ",P," +
-        format_double(d.noise_db, 1) + ",D," +
-        format_double(d.pressure_kpa, 1) + ",K," +
-        (d.temp_humidity_noise_ok && d.pm_pressure_ok ? "A" : "V")
+        "WIMDA," + format_if(pressure_ok, pressure_inhg, 4) + ",I," +
+        format_if(pressure_ok, pressure_bar, 4) + ",B," +
+        format_if(temperature_ok, d.temperature_celsius, 1) + ",C," +
+        ",C,,,,,,,,,,,,,,"
     );
 
-    out += nmea_sentence(
-        "PSENAIR," + std::to_string(d.pm25_ugm3) + ",UGM3," +
-        std::to_string(d.pm10_ugm3) + ",UGM3," +
-        (d.pm_pressure_ok ? "A" : "V")
-    );
+    if (d.wind_ok) {
+        std::vector<std::string> fields;
+        append_xdr_measurement(fields, "A", std::to_string(d.wind_direction_sector), "N", "WIND_SECTOR");
+        out += xdr_sentence(fields);
+    }
 
-    out += nmea_sentence(
-        "PSENLUX," + std::to_string(d.light_lux) + ",LX," +
-        (d.light_ok ? "A" : "V")
-    );
+    if (d.temp_humidity_noise_ok) {
+        std::vector<std::string> fields;
+        append_xdr_measurement(fields, "H", format_double(d.humidity_percent, 1), "P", "REL_HUMIDITY");
+        append_xdr_measurement(fields, "G", format_double(d.noise_db, 1), "D", "NOISE_DB");
+        out += xdr_sentence(fields);
+    }
+
+    if (d.pm_pressure_ok) {
+        std::vector<std::string> fields;
+        append_xdr_measurement(fields, "G", std::to_string(d.pm25_ugm3), "UGM3", "PM2_5");
+        append_xdr_measurement(fields, "G", std::to_string(d.pm10_ugm3), "UGM3", "PM10");
+        out += xdr_sentence(fields);
+    }
+
+    if (d.light_ok) {
+        std::vector<std::string> fields;
+        append_xdr_measurement(fields, "G", std::to_string(d.light_lux), "LX", "LIGHT");
+        out += xdr_sentence(fields);
+    }
+
     return out;
 }
 
