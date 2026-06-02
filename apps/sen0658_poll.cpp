@@ -192,8 +192,10 @@ struct Args {
     int slave = 1;
     int interval_ms = 2000;
     int timeout_ms = 1200;
+    int request_gap_ms = 250;
     int nmea_tcp_port = 0;
     bool interval_ms_set = false;
+    bool request_gap_ms_set = false;
     bool nmea = false;
     bool once = false;
     bool verbose = true;
@@ -210,6 +212,7 @@ void usage(const char* argv0) {
         << "  --interval-ms <ms>    Poll interval, default 2000 (500 with NMEA output)\n"
         << "  --rate-hz <hz>        Poll rate, alternative to --interval-ms; NMEA default 2 Hz\n"
         << "  --timeout-ms <ms>     Per-request timeout, default 1200\n"
+        << "  --request-gap-ms <ms> Delay between Modbus requests, default 250 (10 with NMEA output)\n"
         << "  --nmea                Emit NMEA 0183 standard/XDR sensor sentences at 2 Hz by default\n"
         << "  --nmea-tcp-port <p>   Listen on TCP port p and stream NMEA 0183 sentences\n"
         << "  --nmea-tcp-bind <a>   Bind TCP NMEA server to address a, default all interfaces\n"
@@ -268,6 +271,9 @@ Args parse_args(int argc, char** argv) {
             a.interval_ms_set = true;
         } else if (arg == "--timeout-ms") {
             if (!parse_int(need_value("--timeout-ms"), a.timeout_ms)) std::exit(2);
+        } else if (arg == "--request-gap-ms") {
+            if (!parse_int(need_value("--request-gap-ms"), a.request_gap_ms)) std::exit(2);
+            a.request_gap_ms_set = true;
         } else if (arg == "--nmea-tcp-port") {
             if (!parse_int(need_value("--nmea-tcp-port"), a.nmea_tcp_port)) std::exit(2);
             a.nmea = true;
@@ -295,6 +301,9 @@ Args parse_args(int argc, char** argv) {
     }
     if (a.nmea && !a.interval_ms_set) {
         a.interval_ms = 500;
+    }
+    if (a.nmea && !a.request_gap_ms_set) {
+        a.request_gap_ms = 10;
     }
     return a;
 }
@@ -436,6 +445,11 @@ int main(int argc, char** argv) {
         return 2;
     }
 
+    if (args.request_gap_ms < 0) {
+        std::cerr << "Modbus request gap must be at least 0 ms\n";
+        return 2;
+    }
+
     if (args.nmea_tcp_port < 0 || args.nmea_tcp_port > 65535) {
         std::cerr << "TCP NMEA port must be 1..65535\n";
         return 2;
@@ -472,10 +486,12 @@ int main(int argc, char** argv) {
     const sen0658::Sensor sensor(
         static_cast<std::uint8_t>(args.slave),
         args.timeout_ms,
-        args.verbose
+        args.verbose,
+        args.request_gap_ms
     );
 
     do {
+        const auto poll_started = std::chrono::steady_clock::now();
         if (nmea_tcp_server) {
             nmea_tcp_server->accept_pending();
         }
@@ -496,7 +512,8 @@ int main(int argc, char** argv) {
         }
 
         if (!args.once || nmea_tcp_server) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(args.interval_ms));
+            const auto next_poll = poll_started + std::chrono::milliseconds(args.interval_ms);
+            std::this_thread::sleep_until(next_poll);
         }
     } while (!args.once || nmea_tcp_server);
 
