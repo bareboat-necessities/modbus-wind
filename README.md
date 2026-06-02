@@ -20,6 +20,10 @@ https://wiki.dfrobot.com/sen0658/
 Example Sources: 
 https://wiki.dfrobot.com/sen0658/docs/21685
 
+To input data to computers via USB serial you can use FTDI RS-422 to USB stick (alternative chipsets should work too)
+
+
+
 ## Sensor defaults
 
 Factory/default settings used by this program:
