@@ -79,8 +79,9 @@ Options:
   --port <name>         Serial port, e.g. COM9 or /dev/ttyUSB0
   --baud <baud>         Baud rate, default 4800
   --slave <id>          Modbus slave address, default 1
-  --interval-ms <ms>    Poll interval, default 2000
+  --interval-ms <ms>    Poll interval, default 2000 (500 with --nmea)
   --timeout-ms <ms>     Per-request timeout, default 1200
+  --nmea                Emit NMEA 0183 proprietary sensor sentences at 2 Hz by default
   --once                Poll once and exit
   --quiet               Do not print raw TX/RX bytes
   --help                Show help
@@ -91,6 +92,27 @@ Examples:
 ```bash
 sen0658_poll --port COM9 --once
 sen0658_poll --port /dev/ttyUSB0 --baud 4800 --slave 1
+sen0658_poll --port /dev/ttyUSB0 --nmea
+```
+
+## NMEA 0183 output
+
+Use `--nmea` to print NMEA 0183 proprietary sentences instead of the human-readable report. In this mode the program suppresses raw Modbus TX/RX logging and polls every 500 ms by default, producing 2 Hz output unless `--interval-ms` is supplied.
+
+Each sensor sample emits these checksummed sentences:
+
+- `$PSENWND`: wind speed in m/s, wind direction in true degrees, wind direction sector, and status (`A` = valid, `V` = invalid).
+- `$PSENENV`: temperature in Celsius, relative humidity, noise in dB, pressure in kPa, and status.
+- `$PSENAIR`: PM2.5 and PM10 in ug/m3, and status.
+- `$PSENLUX`: light level in lux, and status.
+
+Example:
+
+```text
+$PSENWND,0.14,M,110,T,2,A*14
+$PSENENV,24.6,C,45.1,P,51.8,D,101.9,K,A*11
+$PSENAIR,5,UGM3,15,UGM3,A*0E
+$PSENLUX,50,LX,A*35
 ```
 
 ## GitHub Actions artifacts
