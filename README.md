@@ -21,7 +21,7 @@ Example Sources:
 https://wiki.dfrobot.com/sen0658/docs/21685
 
 <p align="center">
-<img src="./images/modbus-wind-SEN0658.jpeg?raw=true" style="width: 75%; height: auto;" alt="BBN ModBus Wind" />
+<img src="./images/modbus-wind-SEN0658.jpeg?raw=true" style="width: 45%; height: auto;" alt="BBN ModBus Wind" />
 </p>
 
 To input data to computers via USB serial you can use FTDI RS-422 to USB stick (alternative chipsets should work too)
